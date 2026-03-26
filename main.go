@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -44,6 +45,30 @@ type LeadDetails struct {
 		Name   string   `json:"name"`
 		Values []string `json:"values"`
 	} `json:"field_data"`
+}
+
+// CRMLeadRequest represents the body expected by the Bacchapanti CRM API.
+type CRMLeadRequest struct {
+	ExternalID   string     `json:"external_id"`
+	SourceSystem string     `json:"source_system"`
+	User         CRMUser    `json:"user"`
+	Student      CRMStudent `json:"student"`
+}
+
+type CRMUser struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email"`
+	Phone     string `json:"phone"`
+	Country   string `json:"country"`
+	Timezone  string `json:"timezone"`
+}
+
+type CRMStudent struct {
+	AgeGroup      string `json:"age_group"`
+	LearningLevel string `json:"learning_level"`
+	CampaignName  string `json:"campaign_name"`
+	Notes         string `json:"notes"`
 }
 
 func main() {
@@ -201,15 +226,84 @@ func fetchAndProcessLead(leadID string) {
 
 	// Log received lead details (email, phone, etc.)
 	log.Printf("Successfully fetched details for lead %s:", leadID)
+	
+	// Convert Meta field_data back to a map for easier access
+	fields := make(map[string]string)
 	for _, fd := range lead.FieldData {
-		log.Printf("  %s: %v", fd.Name, fd.Values)
+		if len(fd.Values) > 0 {
+			fields[fd.Name] = fd.Values[0]
+			log.Printf("  %s: %s", fd.Name, fd.Values[0])
+		}
 	}
 
-	// TODO: Push to CRM in next step
-	pushToCRM(lead)
+	// Prepare CRM payload
+	firstName := fields["first_name"]
+	lastName := fields["last_name"]
+	if firstName == "" && fields["full_name"] != "" {
+		// Basic split if only full_name is provided
+		n, _ := fmt.Sscanf(fields["full_name"], "%s %s", &firstName, &lastName)
+		if n < 1 {
+			firstName = fields["full_name"]
+		}
+	}
+
+	crmReq := CRMLeadRequest{
+		ExternalID:   lead.ID,
+		SourceSystem: "meta_lead_ads",
+		User: CRMUser{
+			FirstName: firstName,
+			LastName:  lastName,
+			Email:     fields["email"],
+			Phone:     fields["phone_number"], // Meta's default field name is usually phone_number
+			Country:   fields["country"],
+			Timezone:  "Asia/Kolkata", // Defaulting as per example or extracting if available
+		},
+		Student: CRMStudent{
+			AgeGroup:      fields["age_group"],      // Custom fields from form if defined
+			LearningLevel: fields["learning_level"], // Custom fields from form if defined
+			CampaignName:  lead.FormID,             // Using Form ID as campaign placeholder
+			Notes:         "Imported from Meta Lead Ads",
+		},
+	}
+
+	pushToCRM(crmReq)
 }
 
-func pushToCRM(lead LeadDetails) {
-	// Placeholder for later integration
-	log.Printf("Placeholder: Pushing lead %s to CRM...", lead.ID)
+func pushToCRM(crmReq CRMLeadRequest) {
+	apiKey := os.Getenv("CRM_API_KEY")
+	apiURL := os.Getenv("CRM_API_URL") // e.g. https://bacchapanti.perfeasy.com/api/public/leads/ingest
+	if apiKey == "" || apiURL == "" {
+		log.Println("Missing CRM_API_KEY or CRM_API_URL, skipping CRM push.")
+		return
+	}
+
+	jsonData, err := json.Marshal(crmReq)
+	if err != nil {
+		log.Printf("Error marshaling CRM request: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("Error creating CRM request: %v", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error sending lead to CRM: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+		log.Printf("Successfully pushed lead %s to CRM", crmReq.ExternalID)
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("CRM API returned error: %s, Body: %s", resp.Status, string(body))
+	}
 }
