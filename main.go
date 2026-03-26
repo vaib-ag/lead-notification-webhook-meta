@@ -108,7 +108,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 // verifyWebhook processes Meta's verification challenge.
 func verifyWebhook(w http.ResponseWriter, r *http.Request) {
 	verifyToken := os.Getenv("META_VERIFY_TOKEN")
-	
+
 	query := r.URL.Query()
 	mode := query.Get("hub.mode")
 	token := query.Get("hub.verify_token")
@@ -128,7 +128,7 @@ func verifyWebhook(w http.ResponseWriter, r *http.Request) {
 // receiveNotification processes the lead notification POST request.
 func receiveNotification(w http.ResponseWriter, r *http.Request) {
 	appSecret := os.Getenv("META_APP_SECRET")
-	
+
 	// Read full body for signature validation and parsing
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -166,8 +166,8 @@ func receiveNotification(w http.ResponseWriter, r *http.Request) {
 			if change.Field == "leadgen" {
 				leadgenID := change.Value.LeadgenID
 				log.Printf("Received new lead! Leadgen ID: %s", leadgenID)
-				
-				// Fire-and-forget or synchronous fetch: 
+
+				// Fire-and-forget or synchronous fetch:
 				// The user wants to fetch leads details "immediately after"
 				go fetchAndProcessLead(leadgenID)
 			}
@@ -183,14 +183,14 @@ func validateSignature(payload []byte, signature, secret string) bool {
 	if signature == "" || len(signature) < 8 { // format is sha256=xyz
 		return false
 	}
-	
+
 	// Extract hash from signature (skip "sha256=")
 	actualHash := signature[7:]
-	
+
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write(payload)
 	expectedHash := hex.EncodeToString(h.Sum(nil))
-	
+
 	return hmac.Equal([]byte(actualHash), []byte(expectedHash))
 }
 
@@ -204,7 +204,7 @@ func fetchAndProcessLead(leadID string) {
 
 	// Construct Graph API URL (v20.0 is current at time of writing)
 	url := fmt.Sprintf("https://graph.facebook.com/v20.0/%s?access_token=%s", leadID, accessToken)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		log.Printf("Error calling Meta API for lead %s: %v", leadID, err)
@@ -226,7 +226,7 @@ func fetchAndProcessLead(leadID string) {
 
 	// Log received lead details (email, phone, etc.)
 	log.Printf("Successfully fetched details for lead %s:", leadID)
-	
+
 	// Convert Meta field_data back to a map for easier access
 	fields := make(map[string]string)
 	for _, fd := range lead.FieldData {
@@ -261,7 +261,7 @@ func fetchAndProcessLead(leadID string) {
 		Student: CRMStudent{
 			AgeGroup:      fields["age_group"],      // Custom fields from form if defined
 			LearningLevel: fields["learning_level"], // Custom fields from form if defined
-			CampaignName:  lead.FormID,             // Using Form ID as campaign placeholder
+			CampaignName:  lead.FormID,              // Using Form ID as campaign placeholder
 			Notes:         "Imported from Meta Lead Ads",
 		},
 	}
