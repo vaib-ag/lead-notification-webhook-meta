@@ -30,7 +30,7 @@ COPY --from=builder /app/lead-webhook .
 # COPY .env . (Only if you want .env baked in, generally use docker-compose)
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8654
 
 # Run the binary
 CMD ["./lead-webhook"]
